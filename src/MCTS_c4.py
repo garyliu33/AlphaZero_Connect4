@@ -129,12 +129,11 @@ class DummyNode(object):
 
 def UCT_search(game_states, num_reads, net):
     batch_size = len(game_states)
-    print("UCT search with batch size:", batch_size)
-    boards = []
     roots = [UCTNode(game_states[i], move=None, parent=DummyNode()) for i in range(batch_size)]
 
     for i in range(num_reads):
         leaves = []
+        boards = []
         for j in range(batch_size):
           leaf = roots[j].select_leaf()
           leaves.append(leaf)
@@ -177,7 +176,7 @@ def MCTS_self_play(connectnet, num_games, start_idx, cpu, args, iteration, batch
         os.mkdir("datasets/iter_%d" % iteration)
         
     for idxx in tqdm(range(start_idx, num_games + start_idx)):
-        logger.info("[CPU: %d]: Game %d" % (cpu, idxx))
+        logger.info("[CPU: %d]: Game %d, batch size %d" % (cpu, idxx, batch_size))
         current_boards = [c_board() for i in range(batch_size)]
         dataset = [] # to get state, policy, value for neural network training
         states = []
@@ -197,13 +196,11 @@ def MCTS_self_play(connectnet, num_games, start_idx, cpu, args, iteration, batch
                 else:
                     t = 0.1
                 policy = get_policy(roots[i], t)
-                print("[CPU: %d]: Game %d POLICY:\n " % (cpu, idxx), policy)
                 current_board = do_decode_n_move_pieces(current_board,\
                                                         np.random.choice(np.array([0,1,2,3,4,5,6]), \
                                                                          p = policy)) # decode move and move piece(s)
                 board_state = copy.deepcopy(ed.encode_board(current_board))
                 dataset.append([board_state,policy])
-                print("[Iteration: %d CPU: %d]: Game %d CURRENT BOARD:\n" % (iteration, cpu, idxx), current_board.current_board,current_board.player); print(" ")
                 if current_board.check_winner() == True: # if somebody won
                     if current_board.player == 0: # black wins
                         value = -1
@@ -211,6 +208,7 @@ def MCTS_self_play(connectnet, num_games, start_idx, cpu, args, iteration, batch
                         value = 1
                     finished_games += 1
                 move_counts[i] += 1
+            logger.info("[CPU: %d]: Finished games %d" % (cpu, finished_games))
         dataset_p = []
         for idx,data in enumerate(dataset):
             s,p = data
