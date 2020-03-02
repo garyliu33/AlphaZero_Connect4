@@ -69,14 +69,15 @@ def train(net, dataset, optimizer, scheduler, start_epoch, cpu, args, iteration)
     losses_per_epoch = load_results(iteration + 1)
     
     logger.info("Starting training process...")
-    print("Update step size: %d" % update_size)
     for epoch in range(start_epoch, args.num_epochs):
         total_loss = 0.0
         losses_per_batch = []
         for i,data in enumerate(train_loader,0):
             state, policy, value = data
             if cuda:
-                state, policy, value = state.cuda().float(), policy.float().cuda(), value.cuda().float()
+                state = state.cuda().float()
+                policy = policy.cuda().float()
+                value = value.cuda().float()
             policy_pred, value_pred = net(state) # policy_pred = torch.Size([batch, 4672]) value_pred = torch.Size([batch, 1])
             loss = criterion(value_pred[:,0], value, policy_pred, policy)
             loss = loss/args.gradient_acc_steps
@@ -91,7 +92,7 @@ def train(net, dataset, optimizer, scheduler, start_epoch, cpu, args, iteration)
         scheduler.step()
         if len(losses_per_batch) >= 1:
             losses_per_epoch.append(sum(losses_per_batch)/len(losses_per_batch))
-        if (epoch % 2) == 0:
+        if (epoch % 30) == 0:
             save_as_pickle("losses_per_epoch_iter%d.pkl" % (iteration + 1), losses_per_epoch)
             torch.save({
                     'epoch': epoch + 1,\
@@ -100,9 +101,8 @@ def train(net, dataset, optimizer, scheduler, start_epoch, cpu, args, iteration)
                     'scheduler' : scheduler.state_dict(),\
                 }, os.path.join("./model_data/",\
                     "%s_iter%d.pth.tar" % (args.neural_net_name, (iteration + 1))))
-            losses_per_batch.append(args.gradient_acc_steps*total_loss/update_size)
-            print('[Iteration %d] Process ID: %d [Epoch: %d, %5d/ %d points] total loss per batch: %.3f' %
-                  (iteration, os.getpid(), epoch + 1, (i + 1)*args.batch_size, len(train_set), losses_per_batch[-1]))
+            print('[Iteration %d] Process ID: %d [Epoch: %d, %5d/ %d points]' %
+                  (iteration, os.getpid(), epoch + 1, (i + 1)*args.batch_size, len(train_set)))
             print("Policy (actual, predicted):",policy[0].argmax().item(),policy_pred[0].argmax().item())
             print("Policy data:", policy[0]); print("Policy pred:", policy_pred[0])
             print("Value (actual, predicted):", value[0].item(), value_pred[0,0].item())

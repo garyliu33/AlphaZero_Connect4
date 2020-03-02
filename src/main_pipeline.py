@@ -19,7 +19,7 @@ def start():
     parser.add_argument("--iteration", type=int, default=0, help="Current iteration number to resume from")
     parser.add_argument("--total_iterations", type=int, default=1000, help="Total number of iterations to run")
     parser.add_argument("--MCTS_num_processes", type=int, default=4, help="Number of processes to run MCTS self-plays")
-    parser.add_argument("--num_games_per_MCTS_process", type=int, default=4, help="Number of games to simulate per MCTS self-play process")
+    parser.add_argument("--num_games_per_MCTS_process", type=int, default=2, help="Number of games to simulate per MCTS self-play process")
     parser.add_argument("--temperature_MCTS", type=float, default=1.1, help="Temperature for first 10 moves of each MCTS self-play")
     parser.add_argument("--num_evaluator_games", type=int, default=100, help="No of games to play to evaluate neural nets")
     parser.add_argument("--neural_net_name", type=str, default="cc4_current_net_", help="Name of neural net")

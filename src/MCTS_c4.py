@@ -169,7 +169,10 @@ def get_policy(root, temp=1):
     #policy = np.zeros([7], dtype=np.float32)
     #for idx in np.where(root.child_number_visits!=0)[0]:
     #    policy[idx] = ((root.child_number_visits[idx])**(1/temp))/sum(root.child_number_visits**(1/temp))
-    return ((root.child_number_visits)**(1/temp))/sum(root.child_number_visits**(1/temp))
+    if sum(root.child_number_visits) == 0:
+      return None
+    else:
+        return ((root.child_number_visits)**(1/temp))/sum(root.child_number_visits**(1/temp))
 
 def MCTS_self_play(connectnet, num_games, start_idx, cpu, args, iteration, batch_size):
     logger.info("[CPU: %d]: Starting MCTS self-play..." % cpu)
@@ -184,6 +187,7 @@ def MCTS_self_play(connectnet, num_games, start_idx, cpu, args, iteration, batch
         current_boards = [c_board() for i in range(batch_size)]
         dataset = [] # to get state, policy, value for neural network training
         states = []
+        check_mates = [False for i in range(batch_size)]
         value = 0
         move_counts = [0 for i in range(batch_size)]
         finished_games = 0
@@ -200,11 +204,11 @@ def MCTS_self_play(connectnet, num_games, start_idx, cpu, args, iteration, batch
                 else:
                     t = 0.1
                 policy = get_policy(roots[i], t)
-                current_board = do_decode_n_move_pieces(current_board,\
-                                                        np.random.choice(np.array([0,1,2,3,4,5,6]), \
-                                                                         p = policy)) # decode move and move piece(s)
-                board_state = copy.deepcopy(ed.encode_board(current_board))
-                dataset.append([board_state,policy])
+                if not policy is None:
+                  current_board = do_decode_n_move_pieces(current_board,\
+                                                          np.random.choice(np.array([0,1,2,3,4,5,6]), p = policy)) # decode move and move piece(s)
+                  board_state = copy.deepcopy(ed.encode_board(current_board))
+                  dataset.append([board_state,policy])
                 if current_board.check_winner() == True: # if somebody won
                     if current_board.player == 0: # black wins
                         value = -1
