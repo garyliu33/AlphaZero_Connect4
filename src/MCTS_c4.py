@@ -130,6 +130,7 @@ class DummyNode(object):
 def UCT_search(game_states, num_reads, net):
     batch_size = len(game_states)
     roots = [UCTNode(game_states[i], move=None, parent=DummyNode()) for i in range(batch_size)]
+    check_mates = [False for j in range(batch_size)]
 
     for i in range(num_reads):
         leaves = []
@@ -149,9 +150,12 @@ def UCT_search(game_states, num_reads, net):
         child_priors = child_priors.detach().cpu().numpy()
         value_estimates = value_estimates.detach().cpu().numpy()
         for j in range(batch_size):
+          if check_mates[j]:
+            continue;
           leaf = leaves[j]
           if leaf.game.check_winner() == True or leaf.game.actions() == []: # if somebody won or draw
               leaf.backup(value_estimates[j][0])
+              check_mates[j] = True
               continue
           leaf.expand(child_priors[j]) # need to make sure valid moves
           leaf.backup(value_estimates[j][0])
