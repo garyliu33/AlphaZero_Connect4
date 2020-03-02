@@ -14,7 +14,7 @@ logging.basicConfig(format='%(asctime)s [%(levelname)s]: %(message)s', \
                     datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
 logger = logging.getLogger(__file__)
 
-if __name__ == "__main__":
+def start():
     parser = ArgumentParser()
     parser.add_argument("--iteration", type=int, default=0, help="Current iteration number to resume from")
     parser.add_argument("--total_iterations", type=int, default=1000, help="Total number of iterations to run")
@@ -43,3 +43,7 @@ if __name__ == "__main__":
                 counts += 1
                 train_connectnet(args, iteration=i, new_optim_state=True)
                 winner = evaluate_nets(args, i, i + 1)
+
+if __name__ == "__main__":
+    start();
+

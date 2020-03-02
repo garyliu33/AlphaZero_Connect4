@@ -127,22 +127,36 @@ class DummyNode(object):
         self.child_total_value = collections.defaultdict(float)
         self.child_number_visits = collections.defaultdict(float)
 
-def UCT_search(game_state, num_reads,net,temp):
-    root = UCTNode(game_state, move=None, parent=DummyNode())
+def UCT_search(game_states, num_reads, net):
+    batch_size = len(game_states)
+    print("UCT search with batch size:", batch_size)
+    boards = []
+    roots = [UCTNode(game_states[i], move=None, parent=DummyNode()) for i in range(batch_size)]
+
     for i in range(num_reads):
-        leaf = root.select_leaf()
-        encoded_s = ed.encode_board(leaf.game); encoded_s = encoded_s.transpose(2,0,1)
+        leaves = []
+        for j in range(batch_size):
+          leaf = roots[j].select_leaf()
+          leaves.append(leaf)
+          encoded_s = ed.encode_board(leaf.game) 
+          encoded_s = encoded_s.transpose(2,0,1)
+          boards.append(encoded_s)
+        stacked_boards = np.stack(boards, axis=0)
         if torch.cuda.is_available():
-            encoded_s = torch.from_numpy(encoded_s).float().cuda()
+            stacked_boards = torch.from_numpy(stacked_boards).float().cuda()
         else:
-            encoded_s = torch.from_numpy(encoded_s).float()
-        child_priors, value_estimate = net(encoded_s)
-        child_priors = child_priors.detach().cpu().numpy().reshape(-1); value_estimate = value_estimate.item()
-        if leaf.game.check_winner() == True or leaf.game.actions() == []: # if somebody won or draw
-            leaf.backup(value_estimate); continue
-        leaf.expand(child_priors) # need to make sure valid moves
-        leaf.backup(value_estimate)
-    return root
+            stacked_boards = torch.from_numpy(stacked_boards).float()
+        child_priors, value_estimates = net(stacked_boards)
+        child_priors = child_priors.detach().cpu().numpy()
+        value_estimates = value_estimates.detach().cpu().numpy()
+        for j in range(batch_size):
+          leaf = leaves[j]
+          if leaf.game.check_winner() == True or leaf.game.actions() == []: # if somebody won or draw
+              leaf.backup(value_estimates[j][0])
+              continue
+          leaf.expand(child_priors[j]) # need to make sure valid moves
+          leaf.backup(value_estimates[j][0])
+    return roots
 
 def do_decode_n_move_pieces(board,move):
     board.drop_piece(move)
@@ -154,7 +168,7 @@ def get_policy(root, temp=1):
     #    policy[idx] = ((root.child_number_visits[idx])**(1/temp))/sum(root.child_number_visits**(1/temp))
     return ((root.child_number_visits)**(1/temp))/sum(root.child_number_visits**(1/temp))
 
-def MCTS_self_play(connectnet, num_games, start_idx, cpu, args, iteration):
+def MCTS_self_play(connectnet, num_games, start_idx, cpu, args, iteration, batch_size):
     logger.info("[CPU: %d]: Starting MCTS self-play..." % cpu)
     
     if not os.path.isdir("./datasets/iter_%d" % iteration):
@@ -164,33 +178,39 @@ def MCTS_self_play(connectnet, num_games, start_idx, cpu, args, iteration):
         
     for idxx in tqdm(range(start_idx, num_games + start_idx)):
         logger.info("[CPU: %d]: Game %d" % (cpu, idxx))
-        current_board = c_board()
-        checkmate = False
+        current_boards = [c_board() for i in range(batch_size)]
         dataset = [] # to get state, policy, value for neural network training
         states = []
         value = 0
-        move_count = 0
-        while checkmate == False and current_board.actions() != []:
-            if move_count < 11:
-                t = args.temperature_MCTS
-            else:
-                t = 0.1
-            states.append(copy.deepcopy(current_board.current_board))
-            board_state = copy.deepcopy(ed.encode_board(current_board))
-            root = UCT_search(current_board,777,connectnet,t)
-            policy = get_policy(root, t); print("[CPU: %d]: Game %d POLICY:\n " % (cpu, idxx), policy)
-            current_board = do_decode_n_move_pieces(current_board,\
-                                                    np.random.choice(np.array([0,1,2,3,4,5,6]), \
-                                                                     p = policy)) # decode move and move piece(s)
-            dataset.append([board_state,policy])
-            print("[Iteration: %d CPU: %d]: Game %d CURRENT BOARD:\n" % (iteration, cpu, idxx), current_board.current_board,current_board.player); print(" ")
-            if current_board.check_winner() == True: # if somebody won
-                if current_board.player == 0: # black wins
-                    value = -1
-                elif current_board.player == 1: # white wins
-                    value = 1
-                checkmate = True
-            move_count += 1
+        move_counts = [0 for i in range(batch_size)]
+        finished_games = 0
+        while finished_games < batch_size:
+            for i in range(batch_size):
+                current_board = current_boards[i]
+                states.append(copy.deepcopy(current_board.current_board))
+            roots = UCT_search(current_boards, 777, connectnet)
+            finished_games = 0
+            for i in range(batch_size):
+                current_board = current_boards[i]
+                if move_counts[i] < 11:
+                    t = args.temperature_MCTS
+                else:
+                    t = 0.1
+                policy = get_policy(roots[i], t)
+                print("[CPU: %d]: Game %d POLICY:\n " % (cpu, idxx), policy)
+                current_board = do_decode_n_move_pieces(current_board,\
+                                                        np.random.choice(np.array([0,1,2,3,4,5,6]), \
+                                                                         p = policy)) # decode move and move piece(s)
+                board_state = copy.deepcopy(ed.encode_board(current_board))
+                dataset.append([board_state,policy])
+                print("[Iteration: %d CPU: %d]: Game %d CURRENT BOARD:\n" % (iteration, cpu, idxx), current_board.current_board,current_board.player); print(" ")
+                if current_board.check_winner() == True: # if somebody won
+                    if current_board.player == 0: # black wins
+                        value = -1
+                    elif current_board.player == 1: # white wins
+                        value = 1
+                    finished_games += 1
+                move_counts[i] += 1
         dataset_p = []
         for idx,data in enumerate(dataset):
             s,p = data
@@ -236,7 +256,7 @@ def run_MCTS(args, start_idx=0, iteration=0):
         logger.info("Spawning %d processes..." % num_processes)
         with torch.no_grad():
             for i in range(num_processes):
-                p = mp.Process(target=MCTS_self_play, args=(net, args.num_games_per_MCTS_process, start_idx, i, args, iteration))
+                p = mp.Process(target=MCTS_self_play, args=(net, args.num_games_per_MCTS_process, start_idx, i, args, iteration, args.batch_size))
                 p.start()
                 processes.append(p)
             for p in processes:
@@ -259,5 +279,5 @@ def run_MCTS(args, start_idx=0, iteration=0):
             logger.info("Initialized model.")
         
         with torch.no_grad():
-            MCTS_self_play(net, args.num_games_per_MCTS_process, start_idx, 0, args, iteration)
+            MCTS_self_play(net, args.num_games_per_MCTS_process, start_idx, 0, args, iteration, args.batch_size)
         logger.info("Finished MCTS!")
